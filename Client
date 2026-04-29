@@ -1,0 +1,192 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local Players = game:GetService("Players")
+
+local Mazes = ReplicatedStorage.Mazes
+local Mines = ReplicatedStorage.Mines
+local Events = ReplicatedStorage.Events
+local Modules = ReplicatedStorage.Modules
+
+local Mines = require(Modules.MineScript)
+local Modifiers = require(Modules.ModifiersScript)
+
+local Player = script.Parent.Parent
+local GUI = Player:WaitForChild("PlayerGui"):WaitForChild("Game")
+local Display = GUI.Display
+local Roulette = GUI.Roulette
+
+local ModifierList = {"Darkness", "DoubleSpeed", "Ghost", "BiggerMines", "NoJumping"}
+
+local Timer = 0
+local Pause = false
+local MinesMultiplier = 1
+
+Display.Message.Text = "PRESS THE GREEN SQUARE TO START"
+Display.Size = UDim2.new(0.025 * #Display.Message.Text, 0, 0.075, 0)
+
+local function RunTimer(Time) -- Begins to count down
+	Timer = Time -- sets the timer to the given time(this is done so we can manipulate the timer later)
+	
+	while Timer > 0 do -- loops until the timer hits 0
+		repeat wait() until Pause == false -- waits until the game is no longer paused(this happens during modifier role)
+		
+		if Player:GetAttribute("GameOver") == true then
+			break -- if the game is over the loop ends
+		end
+		
+		Display.Message.Text = Timer -- sets the text to the time left
+		if #tostring(Timer) > 5 then
+			Display.Size = UDim2.new(0.025 * #tostring(Timer), 0, 0.075, 0)
+		else
+			Display.Size = UDim2.new(0.025 * (#tostring(Timer) + 1), 0, 0.075, 0)
+		end -- changes the UI size depending on the length of the timer(how ever many digits)
+		Timer -= 1 -- Takes 1 away from the timer
+		if Modifiers.SpeedUp == true then -- if the modifier speed up is enabled, the code waits 0.5 secs, if not then it will wait 1 second
+			task.wait(0.5)
+		else
+			task.wait(1)
+		end
+	end
+	Player.Character:FindFirstChild("Humanoid").Health = 0 -- once the timer ends, the player dies
+	Modifiers.BigMines = false 
+	Modifiers.SpeedUp = false
+	Lighting.Atmosphere.Density = 0.3
+	Lighting.Atmosphere.Haze = 0 -- all modifiers that have a value connected to it are reset
+	MinesMultiplier = 1 -- resets the multiplier for how many mine spawn
+	Player.leaderstats.Score.Value = 0 -- resets player score
+	workspace.PointGiver.Position = Vector3.new(150, 4.05, -202) -- sets the point giver part back to its original spot
+	Display.Message.Text = "PRESS THE GREEN SQUARE TO START"
+	Display.Size = UDim2.new(0.025 * #Display.Message.Text, 0, 0.075, 0) -- changes the text and frane size
+	
+	ModifierList = {"Darkness", "DoubleSpeed", "Ghost", "BiggerMines", "NoJumping"}
+	for i, mod in pairs(ModifierList) do
+		Roulette.InFrame.Modifiers[mod].Visible = true
+		Roulette.InFrame.Modifiers[mod].Position = UDim2.new(0, 0, i * -1, 0)
+		Roulette.InFrame.Modifiers[mod.."2"].Position = UDim2.new(0, 0, (i * -1) + #ModifierList, 0)
+	end  -- restores modifier list and all modifiers are back in the roulette
+end
+
+local function LoadMaze() -- loads a random maze that is not the previous one
+	local NewMaze = Mazes:GetChildren()[math.random(1, #Mazes:GetChildren())] -- picks random maze from the maze file 
+	
+	if workspace.Maze:FindFirstChildOfClass("Folder") then
+		workspace.Maze:FindFirstChildOfClass("Folder").Parent = Mazes
+	end -- if there is a maze present, it is put back in the maze file
+	
+	NewMaze.Parent = workspace.Maze -- puts random maze in the maze foler
+end
+
+local function SpawnMines(Amount)
+	for i=1, Amount do -- places the given amount of mines
+		local MineType = "Mine"
+		if Modifiers.BigMines == true then
+			MineType = "BigMine"
+		end -- depending on the modifier, a different mine is picked
+		
+		local Mine = Mines.new(MineType) -- Mine is saved in a OOP system
+		Mine:Move() -- Mine is put into place
+
+		Mine.Model.PrimaryPart.Touched:Connect(function(h)
+			if h.Parent:FindFirstChild("Humanoid") then
+				Mine:Touched(h.Parent) -- Mine blows up when touched
+			end
+		end)
+
+		Player:GetAttributeChangedSignal("GameOver"):Connect(function()
+			Mine:Delete() -- when the game is over, the mine is destroyed and removed from the OOP system
+		end)
+		
+		local Check;
+		
+		Check = RunService.Heartbeat:Connect(function()
+			if Pause then
+				Mine:Delete() -- if the game pauses, all mines are destoryed
+				Check:Disconnect()
+			end
+		end)
+	end
+end
+
+local function RoleRoulette() -- roles for a modifier
+	Roulette.Visible = true -- Shows roulette UI
+	
+	local Modifier = math.random(1,#ModifierList) -- picks a random modifier from the list
+	local LenghtOfSpin = 10 -- how long the original spin goes on for
+	local SpeedOfSpin = 0.2 -- how fast the spin is
+	
+	if Roulette.InFrame.Modifiers.Position.Y.Scale > #ModifierList then
+		Roulette.InFrame.Modifiers.Position = UDim2.new(0, 0, #ModifierList, 0) -- if the modifiers are out of bounds, the UI moves to put the top most one back into bound
+	end
+	
+	task.wait(0.5)
+	
+	local Duration = tick() -- starts a timer for how long the spin has been going for
+	while wait() do
+		if tick() - Duration < LenghtOfSpin then -- checks if original spin is done
+			Roulette.InFrame.Modifiers.Position = UDim2.new(0, 0, Roulette.InFrame.Modifiers.Position.Y.Scale - SpeedOfSpin, 0) -- moves the roulette down at the speed of the spin
+			if Roulette.InFrame.Modifiers.Position.Y.Scale <= 0 then
+				Roulette.InFrame.Modifiers.Position = UDim2.new(0, 0, #ModifierList - SpeedOfSpin, 0) -- Once the clone of the first nodifier that is after the last modifier is reached, the roulette returns to the top position
+			end
+			
+			SpeedOfSpin -= 0.0006 -- slows down the spin
+		else
+			break -- stops the spin once its been going on for long enough
+		end
+	end
+	
+	repeat
+		wait()
+		Roulette.InFrame.Modifiers.Position = UDim2.new(0, 0, Roulette.InFrame.Modifiers.Position.Y.Scale - 0.05, 0)
+		if Roulette.InFrame.Modifiers.Position.Y.Scale <= 0 then
+			Roulette.InFrame.Modifiers.Position = UDim2.new(0, 0, Roulette.InFrame.Modifiers.Position.Y.Scale + #ModifierList, 0)
+		end
+	until Roulette.InFrame.Modifiers.Position.Y.Scale >= Modifier - (SpeedOfSpin * 2) and Roulette.InFrame.Modifiers.Position.Y.Scale <= Modifier + (SpeedOfSpin * 2) -- spins the roulette until it reaches the random modifier
+	Roulette.InFrame.Modifiers.Position = UDim2.new(0, 0, Modifier, 0)
+	
+	task.wait(2)
+	
+	Roulette.Visible = false -- hides roulette
+	Pause = false
+	Modifiers.Pause = false -- unpaused the game
+	Modifiers[ModifierList[Modifier]]() -- runs the modifier function
+	
+	Roulette.InFrame.Modifiers[ModifierList[Modifier]].Visible = false
+	Roulette.InFrame.Modifiers[ModifierList[Modifier].."2"].Visible = false -- removes the modifier and its bottom clone from the roulette
+	table.remove(ModifierList, table.find(ModifierList, ModifierList[Modifier])) -- removes the modifier from the table
+	
+	for i, mod in pairs(ModifierList) do
+		Roulette.InFrame.Modifiers[mod].Position = UDim2.new(0, 0, i * -1, 0)
+		if i == #ModifierList then
+			Roulette.InFrame.Modifiers[mod.."2"].Position = UDim2.new(0, 0, 0, 0)
+		end
+	end -- moves any modifiers that came before the chosen modifer down
+	
+	if Modifiers.SpeedUp == true then
+		Player.Character:WaitForChild("Humanoid").WalkSpeed = 40 -- if the speed up modifier was chosen, the player speedsup
+	else
+		Player.Character:WaitForChild("Humanoid").WalkSpeed = 25
+	end
+end
+
+Events.StartGame.OnClientEvent:Connect(function()
+	LoadMaze() -- loads the maze
+	SpawnMines(400) -- spawns 400 mines
+	RunTimer(90) -- starts a timer for 90 seconds
+end)
+
+workspace:WaitForChild("PointGiver").Touched:Connect(function(h)
+	if Players:GetPlayerFromCharacter(h.Parent) == Player and not Pause then -- code runs when the player touches the point giver part
+		Pause = true
+		Modifiers.Pause = true -- pauses the game
+		Timer += 30 -- adds 30 seconds to the timer
+		MinesMultiplier += 0.5 -- increases the mine multiplier by 50%
+		Player.leaderstats.Score.Value += 1 -- gives the player 1 point
+		h.Parent:WaitForChild("Humanoid").WalkSpeed = 0 -- stops the player from moving
+		workspace.PointGiver.Position = Vector3.new(workspace.PointGiver.Position.X * -1, 4.05, -202) -- moves the point giver to the other side of the map
+		RoleRoulette() -- roles the roulette
+		LoadMaze() -- loads a new maze
+		SpawnMines(math.floor(400 * MinesMultiplier)) -- spawns new mines
+	end
+end)
